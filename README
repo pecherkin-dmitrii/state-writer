@@ -1,0 +1,10 @@
+A Flink state modifier app.
+
+Jar args:
+1) savepointPath
+2) operatorUid
+3) listStateName
+4) valueStateName
+5) valueStateCsvFilePath
+6) listStateCsvFilePath
+7) rocksDbStateBackendUri
