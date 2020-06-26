@@ -6,11 +6,11 @@ import org.apache.flink.api.java.ExecutionEnvironment
 import org.apache.flink.api.java.tuple.{Tuple2 => FlinkTuple2}
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
-import org.apache.flink.state.api.functions.KeyedStateBootstrapFunction
 import org.apache.flink.state.api.{OperatorTransformation, Savepoint}
+import org.apache.flink.state.api.functions.KeyedStateBootstrapFunction
 
-import scala.beans.BeanProperty
 import scala.util.Try
+import scala.collection.JavaConverters._
 
 object StateWriter extends App {
   val fieldDelimiter = ";"
@@ -41,7 +41,7 @@ object StateWriter extends App {
 //      .keyBy(r => r.f0)
 //      .transform(new ValueStateBootstrapper)
 
-  class ListStateBootstrapper extends KeyedStateBootstrapFunction[String, ListStateValue] {
+  class ListStateBootstrapper extends KeyedStateBootstrapFunction[String, FlinkTuple2[String, ListStateValue]] {
     var listState: ListState[String] = _
 
     override def open(parameters: Configuration): Unit = {
@@ -49,15 +49,14 @@ object StateWriter extends App {
       listState = getRuntimeContext.getListState(listDescriptor)
     }
 
-    override def processElement(value: ListStateValue, ctx: KeyedStateBootstrapFunction[String, ListStateValue]#Context): Unit = {
-      listState.update(value.listValue)
+    override def processElement(value: FlinkTuple2[String, ListStateValue], ctx: KeyedStateBootstrapFunction[String, FlinkTuple2[String, ListStateValue]]#Context): Unit = {
+      listState.update(value.f1.listValue.asJava)
     }
   }
 
   val listStateDataSet = env
-    .readCsvFile(params.listStateCsvFilePath)
-    .fieldDelimiter(fieldDelimiter).pojoType(classOf[ListStateValue], "key", "listValue")
-//    .types(classOf[String], classOf[java.util.List[String]])
+    .readCsvFile(params.listStateCsvFilePath).fieldDelimiter(fieldDelimiter).types(classOf[String], classOf[String])
+    .map(tuple => ListStateValue(tuple.f0, splitString(tuple.f1)))
 
   val transformation = OperatorTransformation
     .bootstrapWith(listStateDataSet)
@@ -82,9 +81,16 @@ object StateWriter extends App {
     val rocksDbStateBackendUri = Try(args(6)).toOption.getOrElse("file:///home/osboxes/flink-data/stateTestProjectReadState/")
     StateInteractorParams(savepointPath, operatorUid, listStateName, valueStateName, valueStateCsvFilePath, listStateCsvFilePath, rocksDbStateBackendUri)
   }
+
+  private def splitString(str: String): List[String] = {
+    val startIndex = str.indexOf("(") + 1
+    val endIndex = str.indexOf(")")
+    val stringToParse = str.substring(startIndex, endIndex)
+    stringToParse.split(", ").toList
+  }
 }
 
-class ListStateValue(@BeanProperty var key: String, @BeanProperty var listValue: java.util.List[String])
+case class ListStateValue(key: String, listValue: List[String])
 
 case class StateInteractorParams(savepointPath: String,
                                  operatorUid: String,
